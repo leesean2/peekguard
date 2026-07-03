@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PeekGuard — 숄더서핑 감지 라이브 데모</title>
+<meta name="description" content="웹캠으로 화면을 응시하는 제3자를 온디바이스 감지. 설치 없이 브라우저에서 바로 체험하세요. 영상은 기기 밖으로 나가지 않습니다." />
+<style>
+  :root {
+    --bg:#0c1419; --bg2:#0f1b22; --surface:#142530; --line:#214050; --line-soft:#1a313c;
+    --text:#e8f0f3; --muted:#90a7b3; --faint:#5e7884;
+    --accent:#27d3b6; --caution:#f2b347; --warn:#ff6f6f; --info:#46b0dd;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:radial-gradient(120% 80% at 50% -10%, #11242c 0%, var(--bg) 55%) fixed, var(--bg);
+         color:var(--text); font-family:var(--sans); line-height:1.5; }
+  .wrap { max-width:920px; margin:0 auto; padding:36px 20px 72px; }
+
+  .eyebrow { display:inline-flex; align-items:center; gap:8px; font:600 11px/1 var(--mono);
+             letter-spacing:.16em; text-transform:uppercase; color:var(--accent);
+             border:1px solid var(--line); background:var(--surface); padding:7px 11px; border-radius:999px; }
+  .dot { width:6px; height:6px; border-radius:50%; background:var(--accent); }
+  h1 { font-size:30px; line-height:1.25; margin:16px 0 8px; letter-spacing:-.01em; }
+  h1 em { font-style:normal; color:var(--accent); }
+  .lede { color:var(--muted); font-size:15px; margin:0 0 14px; max-width:60ch; }
+  .badges { display:flex; flex-wrap:wrap; gap:7px; margin-bottom:28px; }
+  .badge { font:600 11px/1 var(--mono); color:var(--muted); background:var(--surface);
+           border:1px solid var(--line-soft); border-radius:8px; padding:6px 9px; }
+
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width:760px){ .grid { grid-template-columns:1fr; } }
+  .card { background:linear-gradient(180deg,var(--surface),var(--bg2)); border:1px solid var(--line);
+          border-radius:14px; padding:16px; }
+  .cardTitle { font:600 10.5px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase;
+               color:var(--faint); margin:0 0 10px; }
+
+  .camBox { position:relative; border:1px solid var(--line); border-radius:11px; overflow:hidden;
+            background:#06090b; aspect-ratio:4/3; }
+  #view { display:block; width:100%; height:100%; object-fit:cover; }
+  .camEmpty { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+              color:var(--faint); font-size:13.5px; text-align:center; padding:20px; }
+  .btn { appearance:none; cursor:pointer; font-family:var(--sans); font-weight:650; border-radius:11px;
+         padding:12px 16px; font-size:14px; border:1px solid transparent; width:100%; margin-top:10px; }
+  .btnPrimary { background:var(--accent); color:#04201b; }
+  .btnPrimary:hover { background:#36e4c6; }
+  .btnGhost { background:var(--surface); color:var(--text); border-color:var(--line); }
+
+  .statusTop { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:8px; }
+  #bandTxt { font-weight:700; font-size:16px; color:var(--faint); }
+  .score { font:700 26px var(--mono); color:var(--faint); }
+  .score small { font:500 12px var(--mono); color:var(--faint); }
+  .meter { position:relative; height:9px; border-radius:6px; background:#091016;
+           border:1px solid var(--line-soft); overflow:hidden; margin-bottom:12px; }
+  #fill { height:100%; width:0%; background:var(--accent); transition:width .25s, background .25s; }
+  .tick { position:absolute; top:-1px; bottom:-1px; width:1px; background:var(--bg); opacity:.6; }
+
+  #signals { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:6px; min-height:70px; }
+  .sig { display:flex; gap:9px; align-items:flex-start; border-radius:9px; padding:8px 11px;
+         background:color-mix(in srgb, var(--sev) 8%, transparent);
+         border:1px solid color-mix(in srgb, var(--sev) 28%, transparent); }
+  .sigSev { flex:none; font:650 10px/1 var(--mono); color:var(--sev); border-radius:5px; padding:4px 5px;
+            min-width:30px; text-align:center; border:1px solid color-mix(in srgb, var(--sev) 45%, transparent); }
+  .sigLabel { flex:1; font-size:12.5px; }
+  .sigPts { flex:none; font:600 11px var(--mono); color:var(--faint); }
+  .emptySig { color:var(--faint); font-size:12.5px; }
+
+  .doc { margin-top:16px; background:#fff; color:#202124; border-radius:14px; padding:26px 28px;
+         transition:filter .18s; border:1px solid var(--line); }
+  .doc.blurred { filter:blur(14px) saturate(.6); pointer-events:none; user-select:none; }
+  .doc h3 { margin:0 0 10px; font-size:17px; }
+  .doc p { margin:0 0 10px; font-size:13px; color:#3c4043; }
+  .docBanner { display:none; margin-top:10px; text-align:center; color:var(--warn); font-weight:700; font-size:14px; }
+  .docBanner.show { display:block; }
+
+  .steps { color:var(--muted); font-size:13.5px; }
+  .steps li { margin-bottom:7px; }
+  .steps code { font-family:var(--mono); font-size:12px; background:#091016; border:1px solid var(--line-soft);
+                border-radius:5px; padding:2px 6px; color:#cfe6dd; }
+  .dl { display:inline-flex; align-items:center; gap:8px; margin-top:6px; color:#04201b; background:var(--accent);
+        font-weight:700; text-decoration:none; border-radius:11px; padding:12px 18px; font-size:14px; }
+  .dl:hover { background:#36e4c6; }
+
+  .limits { margin-top:28px; padding-top:18px; border-top:1px solid var(--line-soft);
+            color:var(--faint); font-size:12px; line-height:1.7; }
+  .limits b { color:var(--muted); }
+  a.plain { color:var(--accent); }
+  #err { display:none; margin-top:10px; border:1px solid color-mix(in srgb, var(--warn) 40%, transparent);
+         background:color-mix(in srgb, var(--warn) 10%, transparent); color:#ffc9c9;
+         border-radius:11px; padding:11px 13px; font-size:13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <span class="eyebrow"><span class="dot"></span>PeekGuard · Live Demo</span>
+  <h1>당신 화면을 <em>누가 보고 있는지</em>, 브라우저가 압니다</h1>
+  <p class="lede">
+    웹캠으로 화면을 응시하는 제3자를 감지하고, <b style="color:var(--text)">왜 위험한지</b>를
+    신호·점수로 투명하게 판정합니다. 아래에서 설치 없이 바로 체험하세요 —
+    모든 처리는 이 기기 안에서만 이뤄지며 <b style="color:var(--text)">영상은 어디로도 전송되지 않습니다.</b>
+  </p>
+  <div class="badges">
+    <span class="badge">100% 온디바이스</span>
+    <span class="badge">감지기 전체 245KB</span>
+    <span class="badge">네트워크 요청 0</span>
+    <span class="badge">TF.js 불필요</span>
+    <span class="badge">6fps 저전력</span>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <p class="cardTitle">카메라 (기기 내 분석 · 미저장)</p>
+      <div class="camBox">
+        <canvas id="view"></canvas>
+        <div id="camEmpty" class="camEmpty">카메라를 시작하면 실시간 감지가 표시됩니다.<br/>얼굴 상자: <span style="color:var(--accent)">사용자</span> / <span style="color:var(--warn)">제3자</span></div>
+      </div>
+      <button id="start" class="btn btnPrimary">카메라 시작 (로컬 데모)</button>
+      <div id="err"></div>
+    </div>
+
+    <div class="card">
+      <p class="cardTitle">결정엔진 실시간 판정</p>
+      <div class="statusTop">
+        <span id="bandTxt">대기</span>
+        <span class="score"><span id="score">–</span><small>/100</small></span>
+      </div>
+      <div class="meter">
+        <div id="fill"></div>
+        <span class="tick" style="left:30%"></span>
+        <span class="tick" style="left:60%"></span>
+      </div>
+      <ul id="signals"><li class="emptySig">신호 없음 — 위협이 감지되면 근거가 여기에 표시됩니다</li></ul>
+      <p style="color:var(--faint);font-size:11.5px;margin:12px 0 0;">
+        혼자 테스트: 휴대폰에 얼굴 사진을 띄워 카메라에 1초쯤 비추면 '제3자'로 감지됩니다.
+        스쳐 지나가는 얼굴(0.5초 미만)은 <b>주의</b>까지만 — 화면을 가리지 않습니다.
+      </p>
+    </div>
+  </div>
+
+  <div id="doc" class="doc">
+    <h3>기밀 문서 (블러 시연용)</h3>
+    <p>이 영역은 실제 확장에서 보호되는 화면을 흉내냅니다. 위 판정이 <b>위험(60점 이상)</b>이 되는 순간
+       즉시 블러 처리되고, 위협이 사라지면 약 2초 뒤 자동 해제됩니다.</p>
+    <p>4분기 매출 목표: ₩1,240,000,000 · 신규 파트너십: (대외비) · 인사 개편안: (대외비) ·
+       서버 접속 정보: 10.x.x.x · 프로젝트 코드네임: HANGANG</p>
+  </div>
+  <div id="docBanner" class="docBanner">🛡 제3자 응시 감지 — 화면 보호 중</div>
+
+  <div class="card" style="margin-top:28px;">
+    <p class="cardTitle">크롬 확장으로 실제 사용하기</p>
+    <ol class="steps">
+      <li>확장 패키지 다운로드 → 압축 해제</li>
+      <li><code>chrome://extensions</code> → 우상단 <b>개발자 모드</b> ON</li>
+      <li><b>압축해제된 확장 프로그램 로드</b> → 폴더 선택</li>
+      <li>설치 시 열리는 페이지에서 카메라 권한 허용 → 툴바 아이콘에서 토글 ON</li>
+    </ol>
+    <a class="dl" href="peekguard-extension.zip" download>⬇ 확장 다운로드 (.zip)</a>
+    <span style="margin-left:10px;font-size:12.5px;color:var(--faint)">
+      소스: <a class="plain" href="https://github.com/leesean2/peekguard" target="_blank" rel="noopener">GitHub</a></span>
+  </div>
+
+  <div class="limits">
+    <b>정직한 한계:</b> 전면 카메라 화각 밖(정후방 어깨 바로 뒤)은 물리적으로 감지할 수 없습니다.
+    옆·대각선·카메라 시야 내 후방을 커버하며, 완전한 방어는 물리 정보보호필터 병용을 권합니다.
+    저조도에서는 감지율이 떨어질 수 있습니다. 본 프로젝트는 학습·포트폴리오 목적이며,
+    유사 상용 제품(EyesOff 등)과 달리 <b>판정 근거를 신호+점수로 완전 공개</b>하는 데 초점을 둡니다.
+    감지: <a class="plain" href="https://github.com/nenadmarkus/picojs" target="_blank" rel="noopener">pico.js</a> (MIT).
+  </div>
+</div>
+
+<script src="lib/pico.js"></script>
+<script type="module" src="demo.js"></script>
+</body>
+</html>

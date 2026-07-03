@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="ko">
+  <head><meta charset="UTF-8" /><title>PeekGuard 감지 엔진</title></head>
+  <body>
+    <!-- 화면에 표시되지 않는 offscreen 문서. 웹캠 프레임을 로컬에서만 분석한다. -->
+    <video id="cam" autoplay playsinline muted style="display:none"></video>
+    <canvas id="work" style="display:none"></canvas>
+    <script src="lib/pico.js"></script>
+    <script type="module" src="offscreen.js"></script>
+  </body>
+</html>

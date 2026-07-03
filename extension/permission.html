@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<title>PeekGuard — 카메라 권한 설정</title>
+<style>
+  body { background:#0c1419; color:#e8f0f3; font-family:system-ui,-apple-system,"Malgun Gothic",sans-serif;
+         display:flex; align-items:center; justify-content:center; min-height:100vh; margin:0; }
+  .card { max-width:440px; background:#0f1b22; border:1px solid #214050; border-radius:16px; padding:28px; }
+  h1 { font-size:19px; margin:0 0 10px; }
+  p { color:#90a7b3; font-size:13.5px; line-height:1.6; }
+  ul { color:#90a7b3; font-size:12.5px; line-height:1.7; padding-left:18px; }
+  button { width:100%; margin-top:16px; cursor:pointer; border:1px solid #27d3b6; background:#27d3b6;
+           color:#04201b; font:650 14px/1 system-ui; border-radius:11px; padding:13px; }
+  button:disabled { opacity:.5; cursor:default; }
+  .ok { color:#27d3b6; font-weight:650; margin-top:14px; display:none; }
+  .fail { color:#ff6f6f; margin-top:14px; display:none; font-size:13px; }
+  video { display:none; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>카메라 권한이 필요합니다</h1>
+  <p>PeekGuard 는 웹캠으로 <b style="color:#e8f0f3">화면을 응시하는 제3자</b>를 감지합니다.
+     감지는 전부 이 기기 안에서 처리되며:</p>
+  <ul>
+    <li>영상·이미지는 <b>저장되지 않고</b> 프레임 분석 즉시 폐기됩니다</li>
+    <li>네트워크로 <b>아무것도 전송하지 않습니다</b> (오프라인에서도 동작)</li>
+    <li>기록되는 것은 위협 이벤트의 시각·점수·신호 종류뿐입니다</li>
+  </ul>
+  <button id="grant">카메라 권한 허용하기</button>
+  <div id="ok" class="ok">✓ 권한이 허용되었습니다. 이 탭을 닫고 툴바의 PeekGuard 아이콘에서 감지를 켜세요.</div>
+  <div id="fail" class="fail"></div>
+  <video id="v" autoplay muted playsinline></video>
+</div>
+<script src="permission.js"></script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "PeekGuard — 숄더서핑 감지",
+  "version": "0.1.0",
+  "description": "웹캠으로 화면을 응시하는 제3자를 온디바이스 감지하고, 근거 점수와 함께 화면을 즉시 가립니다. 영상은 기기 밖으로 나가지 않습니다.",
+  "permissions": ["offscreen", "storage", "alarms"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }
+  },
+  "icons": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "options_page": "permission.html"
+}
