@@ -4,6 +4,7 @@
   test_face.gray / test_noise.gray      — 512x512, test_pico.mjs 용
   e2e_full.gray / e2e_240.gray          — 두 얼굴 합성, test_e2e.mjs 용
   sim_solo0..7.gray / sim_two0..7.gray  — 320x240 열화 웹캠 시퀀스, test_webcam_sim.mjs 용
+  sim_move0..9.gray                     — 혼자 + 고개 이동(오탐 회귀), test_webcam_sim.mjs 용
 
 실행: python3 gen_test_images.py && node test_pico.mjs && node test_e2e.mjs && node test_webcam_sim.mjs
 """
@@ -49,5 +50,17 @@ two = Image.new('RGB', (320, 240), (18, 26, 32))
 two.paste(face.resize((140, 140)), (60, 70))             # 사용자
 two.paste(face.resize((55, 55)), (235, 40))              # 1.5m 뒤 위협
 degrade_seq(two, 'sim_two', 8, rng)
+
+# 4) 혼자 + 고개 이동 시퀀스 (오탐 회귀) — 프레임당 20px 수평 이동.
+#    detection memory 방식에서 이전 위치 잔상이 별도 클러스터로 쪼개져
+#    "제3자 감지 → danger" 오탐을 일으켰던 조건.
+f140 = face.resize((140, 140))
+for i in range(10):
+    fr = Image.new('RGB', (320, 240), (18, 26, 32))
+    fr.paste(f140, (20 + i * 20, 60))
+    im = fr.convert('L')
+    im = ImageEnhance.Brightness(im).enhance(0.5).filter(ImageFilter.GaussianBlur(1.0))
+    base = np.asarray(im).astype(np.int16)
+    np.clip(base + rng.normal(0, 12, base.shape), 0, 255).astype(np.uint8).tofile(f'sim_move{i}.gray')
 
 print('all test images written')

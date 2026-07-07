@@ -52,9 +52,10 @@ export const DEFAULTS = {
   closeRangeRatio: 0.16,  // 얼굴 높이 / 프레임 높이 ≥ 이 값 → 근거리
   approachGrowth: 1.35,   // 트랙 내 얼굴 크기가 이 배율 이상 커지면 접근 중
   trackMatchDist: 0.22,   // 트랙 매칭 허용 거리(프레임 대각선 비율)
-  minQuality: 15,         // pico q 임계 — detection memory(5프레임 누적) 기준.
+  minQuality: 15,         // pico q 임계 — 최근 qMemFrames 프레임 위치 추적 누적 기준.
                           // 캘리브레이션: 열화 웹캠 조건에서 실제 얼굴은 2프레임 내 15 초과
-                          // (누적 31~44 안정), 순수 노이즈는 누적 후에도 0.
+                          // (누적 31~44 안정), 순수 노이즈는 위치가 불규칙해 누적되지 않음.
+  qMemFrames: 5,          // q 누적 창 크기 (6fps 기준 약 0.83초)
 };
 
 export const SENSITIVITY_PRESETS = {
@@ -67,7 +68,8 @@ export const SENSITIVITY_PRESETS = {
 export function createEngine(config = {}) {
   return {
     cfg: { ...DEFAULTS, ...config },
-    tracks: [],        // { id, row, col, size, age, firstSize, missing }
+    tracks: [],        // 위협 트랙: { id, row, col, size, age, firstSize, missing }
+    qTracks: [],       // q 누적 트랙(전체 얼굴): { row, col, size, qHist[], missing }
     nextId: 1,
     clearStreak: 0,    // 위협 없는 연속 프레임 수 (해제 히스테리시스)
     latched: false,    // danger 래치 상태
@@ -81,19 +83,46 @@ export function updateConfig(engine, config) {
 // ── 프레임 1개 처리 ─────────────────────────────────────────────────────────
 /**
  * @param {object} engine   createEngine() 상태 (변이됨)
- * @param {Array}  dets     [{row, col, size, q}] — 품질 필터 전 pico 클러스터
+ * @param {Array}  dets     [{row, col, size, q}] — 현재 프레임의 pico 클러스터(품질 필터 전)
  * @param {number} frameW   분석 프레임 너비
  * @param {number} frameH   분석 프레임 높이
- * @returns {object} report { band, bandLabel, score, signals, faces, blur, tracks }
+ * @returns {object} report { band, bandLabel, score, signals, faces, faceBoxes, blur, tracks }
  */
 export function processFrame(engine, dets, frameW, frameH) {
   const { cfg } = engine;
   const diag = Math.hypot(frameW, frameH);
 
-  // 1) 품질 필터
-  const faces = dets
-    .filter((d) => d.q >= cfg.minQuality)
-    .map((d) => ({ row: d.row, col: d.col, size: d.size, q: d.q }));
+  // 1) 품질 필터 — 프레임별 q 를 위치 추적으로 누적해 노이즈를 걸러낸다.
+  //    (여러 프레임의 원본 감지를 합쳐 재클러스터링하는 detection memory 방식은
+  //     얼굴이 움직이면 이전 위치 잔상이 별도 클러스터로 쪼개져 "제3자" 오탐을
+  //     만들므로, 같은 위치에서 지속 감지될 때만 신뢰도가 쌓이게 한다.
+  //     실제 얼굴은 같은 자리에서 q 가 누적되고, 노이즈는 위치가 불규칙해 소멸.)
+  const qMatched = new Set();
+  for (const qt of engine.qTracks) qt.missing++;
+  const faces = [];
+  for (const d of dets) {
+    let best = null, bestDist = Infinity;
+    for (const qt of engine.qTracks) {
+      if (qMatched.has(qt)) continue;
+      const dist = Math.hypot(d.row - qt.row, d.col - qt.col) / diag;
+      if (dist < cfg.trackMatchDist && dist < bestDist) { best = qt; bestDist = dist; }
+    }
+    if (!best) { best = { qHist: [], missing: 0 }; engine.qTracks.push(best); }
+    qMatched.add(best);
+    best.row = d.row; best.col = d.col; best.size = d.size; best.missing = 0;
+    best.qHist.push(d.q);
+    if (best.qHist.length > cfg.qMemFrames) best.qHist.shift();
+    const q = best.qHist.reduce((s, v) => s + v, 0);
+    if (q >= cfg.minQuality) faces.push({ row: d.row, col: d.col, size: d.size, q });
+  }
+  // 이번 프레임 미검출 트랙: 누적 창에 0 을 채워 잔상 신뢰도를 소멸시키고,
+  // 2프레임 연속 미검출이면 제거 (위협 트랙과 동일한 1프레임 깜빡임 허용)
+  engine.qTracks = engine.qTracks.filter((qt) => {
+    if (qMatched.has(qt)) return true;
+    qt.qHist.push(0);
+    if (qt.qHist.length > cfg.qMemFrames) qt.qHist.shift();
+    return qt.missing <= 1;
+  });
 
   // 2) 사용자(primary) = 가장 큰 얼굴. 나머지 = 잠재 위협.
   faces.sort((a, b) => b.size - a.size);
@@ -187,6 +216,7 @@ export function processFrame(engine, dets, frameW, frameH) {
     signals,
     blur: band === 'danger',
     faces: faces.length,
+    faceBoxes: faces,  // 수용된 얼굴 좌표(누적 q 포함, 큰 순) — 데모 시각화용
     extras: liveTracks.length,
     tracks: liveTracks.map((t) => ({ id: t.id, age: t.age, size: t.size })),
   };

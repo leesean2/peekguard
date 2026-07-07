@@ -30,8 +30,8 @@ let classify = null;
 let engine = createEngine();
 let running = false;
 let timer = null;
-// picojs 공식 실시간 레시피: 5프레임 감지 누적으로 웹캠 노이즈에 의한 q 출렁임 안정화
-let updateMemory = pico.instantiate_detection_memory(5);
+// 저조도 q 출렁임 안정화는 engine.js 의 위치 추적 q 누적(qTracks)이 담당한다.
+// (pico detection memory 는 얼굴이 움직이면 잔상이 제3자로 오인되는 문제가 있어 제거)
 
 async function loadCascade() {
   const res = await fetch('models/facefinder');
@@ -50,9 +50,11 @@ function toGray(rgba, n) {
 function renderReport(report, faces, allFaces, scale) {
   // 임계 미달 감지(회색 점선 + q값): "감지기가 뭘 보고 있는지" 투명하게 노출.
   // 조명이 어두워 인식이 안 될 때 사용자가 원인을 눈으로 확인할 수 있다.
+  // (faces 는 엔진이 만든 사본이라 좌표 키로 매칭)
+  const accepted = new Set(faces.map((f) => `${f.row}|${f.col}|${f.size}`));
   vctx.font = '600 11px ui-monospace, monospace';
   for (const f of allFaces) {
-    if (faces.includes(f)) continue;
+    if (accepted.has(`${f.row}|${f.col}|${f.size}`)) continue;
     const r = (f.size / 2) * scale;
     vctx.strokeStyle = 'rgba(200,210,215,.65)';
     vctx.setLineDash([5, 4]);
@@ -114,11 +116,10 @@ function tick() {
     classify,
     { shiftfactor: 0.1, minsize: 18, maxsize: 1000, scalefactor: 1.1 },
   );
-  dets = updateMemory(dets); // 최근 5프레임 누적 → q 안정화
   const allFaces = pico.cluster_detections(dets, 0.2)
     .map(([row, col, size, q]) => ({ row, col, size, q }));
-  const faces = allFaces.filter((f) => f.q >= engine.cfg.minQuality);
 
+  // 품질 필터(q 누적)는 엔진이 소유 — 수용된 얼굴은 report.faceBoxes 로 받는다
   const report = processFrame(engine, allFaces, w, h);
 
   // 표시 캔버스: 프리뷰 + 상자
@@ -126,7 +127,7 @@ function tick() {
   const dispH = Math.round(dispW * (h / w));
   if (view.width !== dispW) { view.width = dispW; view.height = dispH; }
   vctx.drawImage(video, 0, 0, dispW, dispH);
-  renderReport(report, faces, allFaces, dispW / w);
+  renderReport(report, report.faceBoxes, allFaces, dispW / w);
 }
 
 $('start').addEventListener('click', async () => {
@@ -156,8 +157,7 @@ $('start').addEventListener('click', async () => {
     });
     video.srcObject = stream;
     await video.play();
-    engine = createEngine(); // 상태 초기화
-    updateMemory = pico.instantiate_detection_memory(5); // 감지 메모리도 초기화
+    engine = createEngine(); // 상태 초기화 (q 누적 트랙 포함)
     running = true;
     $('camEmpty').style.display = 'none';
     btn.textContent = '중지';

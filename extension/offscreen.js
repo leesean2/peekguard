@@ -22,9 +22,8 @@ let engine = createEngine();
 let timer = null;
 let lastBand = null;
 let lastKey = '';
-// picojs 공식 실시간 레시피: 5프레임 감지 누적(memory)으로 웹캠 노이즈에 의한
-// 프레임별 q 출렁임을 안정화한다. (단일 프레임만 쓰면 저조도에서 사용자 미인식)
-let updateMemory = pico.instantiate_detection_memory(5);
+// 저조도 q 출렁임 안정화는 engine.js 의 위치 추적 q 누적(qTracks)이 담당한다.
+// (pico detection memory 는 얼굴이 움직이면 잔상이 제3자로 오인되는 문제가 있어 제거)
 
 // ── 캐스케이드 로드 (확장 패키지에 번들) ────────────────────────────────────
 async function loadCascade() {
@@ -59,7 +58,6 @@ function tick() {
     classify,
     { shiftfactor: 0.1, minsize: 18, maxsize: 1000, scalefactor: 1.1 },
   );
-  dets = updateMemory(dets); // 최근 5프레임 누적 → q 안정화
   dets = pico.cluster_detections(dets, 0.2)
     .map(([row, col, size, q]) => ({ row, col, size, q }));
 
