@@ -1,0 +1,14 @@
+{
+  "name": "peekguard-desktop",
+  "version": "0.1.0",
+  "description": "PeekGuard 데스크톱 — 브라우저 밖 전체 화면을 보호하는 숄더서핑 감지 트레이 앱",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "smoke": "electron . --smoke"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^33.0.0"
+  }
+}
