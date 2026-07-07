@@ -52,7 +52,9 @@ export const DEFAULTS = {
   closeRangeRatio: 0.16,  // 얼굴 높이 / 프레임 높이 ≥ 이 값 → 근거리
   approachGrowth: 1.35,   // 트랙 내 얼굴 크기가 이 배율 이상 커지면 접근 중
   trackMatchDist: 0.22,   // 트랙 매칭 허용 거리(프레임 대각선 비율)
-  minQuality: 5.0,        // pico q 임계
+  minQuality: 15,         // pico q 임계 — detection memory(5프레임 누적) 기준.
+                          // 캘리브레이션: 열화 웹캠 조건에서 실제 얼굴은 2프레임 내 15 초과
+                          // (누적 31~44 안정), 순수 노이즈는 누적 후에도 0.
 };
 
 export const SENSITIVITY_PRESETS = {

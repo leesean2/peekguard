@@ -9,7 +9,9 @@
 
 import { createEngine, processFrame, updateConfig, SENSITIVITY_PRESETS, DEFAULTS } from './engine.js';
 
-const ANALYSIS_WIDTH = 240;
+// 분석 해상도: 640×480 캡처의 정확히 1/2. 240px 에서는 원거리(1.5m+) 얼굴의
+// 디테일이 부족해 열화 조건에서 q 가 임계 미달 → 320px 로 상향 (연산 1.8배, 6fps 에선 미미).
+const ANALYSIS_WIDTH = 320;
 
 const video = document.getElementById('cam');
 const canvas = document.getElementById('work');
@@ -20,6 +22,9 @@ let engine = createEngine();
 let timer = null;
 let lastBand = null;
 let lastKey = '';
+// picojs 공식 실시간 레시피: 5프레임 감지 누적(memory)으로 웹캠 노이즈에 의한
+// 프레임별 q 출렁임을 안정화한다. (단일 프레임만 쓰면 저조도에서 사용자 미인식)
+let updateMemory = pico.instantiate_detection_memory(5);
 
 // ── 캐스케이드 로드 (확장 패키지에 번들) ────────────────────────────────────
 async function loadCascade() {
@@ -54,6 +59,7 @@ function tick() {
     classify,
     { shiftfactor: 0.1, minsize: 18, maxsize: 1000, scalefactor: 1.1 },
   );
+  dets = updateMemory(dets); // 최근 5프레임 누적 → q 안정화
   dets = pico.cluster_detections(dets, 0.2)
     .map(([row, col, size, q]) => ({ row, col, size, q }));
 
@@ -69,12 +75,29 @@ function tick() {
   }
 }
 
+// 민감도: 메시지 대신 storage 를 직접 읽는다.
+// (background 가 문서 생성 직후 보내는 메시지는 리스너 등록 전이면 유실될 수 있음)
+async function applySensitivityFromStorage() {
+  const { settings } = await chrome.storage.local.get('settings');
+  const preset = SENSITIVITY_PRESETS[settings?.sensitivity];
+  if (preset) updateConfig(engine, preset);
+}
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes.settings) {
+    const preset = SENSITIVITY_PRESETS[changes.settings.newValue?.sensitivity];
+    if (preset) updateConfig(engine, preset);
+  }
+});
+
 // ── 시작 ────────────────────────────────────────────────────────────────────
 async function start() {
   try {
+    await applySensitivityFromStorage();
     await loadCascade();
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: { width: { ideal: 320 }, height: { ideal: 240 }, frameRate: { ideal: 15 } },
+      // 640×480 캡처 후 240px 로 다운스케일 — 카메라 네이티브에 가까운 해상도가
+      // 320×240 직접 요청보다 노이즈가 적어 감지 품질이 좋다.
+      video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 15 } },
       audio: false,
     });
     video.srcObject = stream;
@@ -89,14 +112,5 @@ async function start() {
     }).catch(() => {});
   }
 }
-
-// 민감도 변경 수신
-chrome.runtime.onMessage.addListener((msg, _s, sendResponse) => {
-  if (msg.type === 'PG_CONFIG' && msg.sensitivity) {
-    updateConfig(engine, SENSITIVITY_PRESETS[msg.sensitivity] || {});
-    sendResponse({ ok: true });
-  }
-  return false;
-});
 
 start();

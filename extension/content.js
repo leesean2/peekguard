@@ -9,6 +9,7 @@
   let host = null;
   let shadow = null;
   let lastKey = '';   // 동일 내용 재렌더링 방지 ("누르는 동안 보기" 상호작용 보호)
+  let decoyKeyHandler = null; // 디코이 Esc 핸들러 (오버레이 제거 시 반드시 해제)
 
   const SEV_COLOR = { high: '#ff6f6f', medium: '#f2b347', low: '#90a7b3', info: '#46b0dd' };
   const SEV_TEXT = { high: '높음', medium: '보통', low: '낮음', info: '정보' };
@@ -22,6 +23,10 @@
   }
 
   function removeOverlay() {
+    if (decoyKeyHandler) {
+      window.removeEventListener('keydown', decoyKeyHandler, true);
+      decoyKeyHandler = null;
+    }
     host?.remove();
     host = null; shadow = null;
   }
@@ -86,8 +91,9 @@
 
   function renderDecoy() {
     ensureOverlay();
-    // 디코이: 평범한 문서 화면처럼 보이게(눈에 띄는 보안 UI 없음). Esc 2회로 해제 대신
-    // 위협 해제 시 자동 제거. 하단에 아주 옅은 상태점만 표시.
+    // 디코이: 평범한 문서 화면처럼 보이게(눈에 띄는 보안 UI 없음).
+    // 탈출구: Esc 2연타(1초 내) — 오탐 지속 시 사용자가 갇히지 않도록.
+    //  (키보드를 조작할 수 있는 사람 = 이미 기기를 쥔 사용자라는 전제)
     shadow.innerHTML = `
       <div style="position:fixed;inset:0;background:#ffffff;color:#202124;
                   font-family:system-ui,-apple-system,'Malgun Gothic',sans-serif;overflow:hidden;">
@@ -97,9 +103,21 @@
             `<div style="height:13px;width:${[92, 88, 95, 72, 90, 85, 94, 60, 91, 87, 93, 78, 89, 52][i]}%;
                          background:#f1f3f4;border-radius:4px;margin-bottom:12px;"></div>`).join('')}
         </div>
-        <div title="PeekGuard" style="position:fixed;right:10px;bottom:10px;width:8px;height:8px;
+        <div title="PeekGuard — Esc 2번으로 해제" style="position:fixed;right:10px;bottom:10px;width:8px;height:8px;
                     border-radius:50%;background:#dadce0;"></div>
       </div>`;
+
+    let lastEsc = 0;
+    decoyKeyHandler = (e) => {
+      if (e.key !== 'Escape') return;
+      const now = Date.now();
+      if (now - lastEsc < 1000) {
+        lastKey = '';
+        removeOverlay(); // 내부에서 핸들러도 해제
+      }
+      lastEsc = now;
+    };
+    window.addEventListener('keydown', decoyKeyHandler, true);
   }
 
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {

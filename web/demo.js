@@ -7,7 +7,7 @@
 
 import { createEngine, processFrame } from './lib/engine.js';
 
-const ANALYSIS_WIDTH = 240;
+const ANALYSIS_WIDTH = 320; // 640×480 캡처의 1/2 — 원거리 얼굴 디테일 확보
 const FPS = 6;
 
 const $ = (id) => document.getElementById(id);
@@ -30,6 +30,8 @@ let classify = null;
 let engine = createEngine();
 let running = false;
 let timer = null;
+// picojs 공식 실시간 레시피: 5프레임 감지 누적으로 웹캠 노이즈에 의한 q 출렁임 안정화
+let updateMemory = pico.instantiate_detection_memory(5);
 
 async function loadCascade() {
   const res = await fetch('models/facefinder');
@@ -45,14 +47,33 @@ function toGray(rgba, n) {
   return g;
 }
 
-function renderReport(report, faces, scale) {
+function renderReport(report, faces, allFaces, scale) {
+  // 임계 미달 감지(회색 점선 + q값): "감지기가 뭘 보고 있는지" 투명하게 노출.
+  // 조명이 어두워 인식이 안 될 때 사용자가 원인을 눈으로 확인할 수 있다.
+  vctx.font = '600 11px ui-monospace, monospace';
+  for (const f of allFaces) {
+    if (faces.includes(f)) continue;
+    const r = (f.size / 2) * scale;
+    vctx.strokeStyle = 'rgba(200,210,215,.65)';
+    vctx.setLineDash([5, 4]);
+    vctx.lineWidth = 1.5;
+    vctx.strokeRect(f.col * scale - r, f.row * scale - r, r * 2, r * 2);
+    vctx.setLineDash([]);
+    vctx.fillStyle = 'rgba(200,210,215,.85)';
+    vctx.fillText(`q=${f.q.toFixed(0)}`, f.col * scale - r, f.row * scale - r - 4);
+  }
+
   // 얼굴 상자: 가장 큰 얼굴(사용자)=틸, 나머지(제3자)=레드
   faces.sort((a, b) => b.size - a.size);
   faces.forEach((f, i) => {
     const r = (f.size / 2) * scale;
-    vctx.strokeStyle = i === 0 ? '#27d3b6' : '#ff6f6f';
+    const color = i === 0 ? '#27d3b6' : '#ff6f6f';
+    vctx.strokeStyle = color;
     vctx.lineWidth = 2.5;
     vctx.strokeRect(f.col * scale - r, f.row * scale - r, r * 2, r * 2);
+    vctx.fillStyle = color;
+    vctx.fillText(`${i === 0 ? '사용자' : '제3자'} q=${f.q.toFixed(0)}`,
+      f.col * scale - r, f.row * scale - r - 4);
   });
 
   const ui = BAND_UI[report.band];
@@ -93,17 +114,19 @@ function tick() {
     classify,
     { shiftfactor: 0.1, minsize: 18, maxsize: 1000, scalefactor: 1.1 },
   );
-  const faces = pico.cluster_detections(dets, 0.2)
+  dets = updateMemory(dets); // 최근 5프레임 누적 → q 안정화
+  const allFaces = pico.cluster_detections(dets, 0.2)
     .map(([row, col, size, q]) => ({ row, col, size, q }));
+  const faces = allFaces.filter((f) => f.q >= engine.cfg.minQuality);
 
-  const report = processFrame(engine, faces, w, h);
+  const report = processFrame(engine, allFaces, w, h);
 
   // 표시 캔버스: 프리뷰 + 상자
   const dispW = view.clientWidth || 440;
   const dispH = Math.round(dispW * (h / w));
   if (view.width !== dispW) { view.width = dispW; view.height = dispH; }
   vctx.drawImage(video, 0, 0, dispW, dispH);
-  renderReport(report, faces.filter((f) => f.q >= engine.cfg.minQuality), dispW / w);
+  renderReport(report, faces, allFaces, dispW / w);
 }
 
 $('start').addEventListener('click', async () => {
@@ -127,12 +150,14 @@ $('start').addEventListener('click', async () => {
   try {
     if (!classify) await loadCascade();
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: { width: { ideal: 320 }, height: { ideal: 240 }, frameRate: { ideal: 15 } },
+      // 640×480 캡처 후 240px 다운스케일 — 320×240 직접 요청보다 노이즈가 적다
+      video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 15 } },
       audio: false,
     });
     video.srcObject = stream;
     await video.play();
     engine = createEngine(); // 상태 초기화
+    updateMemory = pico.instantiate_detection_memory(5); // 감지 메모리도 초기화
     running = true;
     $('camEmpty').style.display = 'none';
     btn.textContent = '중지';

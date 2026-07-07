@@ -45,7 +45,7 @@ async function applyEnabled() {
   const active = s.enabled && Date.now() >= s.pausedUntil;
   if (active) {
     await ensureOffscreen();
-    chrome.runtime.sendMessage({ type: 'PG_CONFIG', sensitivity: s.sensitivity }).catch(() => {});
+    // 민감도는 offscreen 이 storage 에서 직접 읽음(메시지 경합 없음)
   } else {
     await closeOffscreen();
     await broadcast({ type: 'PG_CLEAR' });
@@ -74,11 +74,26 @@ async function broadcast(msg) {
 }
 
 // ── 이벤트 로그 (메타데이터만: 시각·점수·신호 id·지속시간) ──────────────────
-let openEvent = null; // { start, score, signalIds }
+// openEvent 는 storage.session 에 영속화한다 — MV3 SW 는 유휴 시 종료되므로
+// 메모리 변수만 쓰면 장시간 위협 이벤트가 로그에서 유실된다.
+async function getOpenEvent() {
+  const { openEvent } = await chrome.storage.session.get('openEvent');
+  return openEvent || null;
+}
+async function setOpenEvent(ev) {
+  if (ev) await chrome.storage.session.set({ openEvent: ev });
+  else await chrome.storage.session.remove('openEvent');
+}
 
 async function logThreatTransition(report) {
+  const openEvent = await getOpenEvent();
+
   if (report.band === 'danger' && !openEvent) {
-    openEvent = { start: Date.now(), score: report.score, signalIds: report.signals.map((s) => s.id) };
+    await setOpenEvent({
+      start: Date.now(),
+      score: report.score,
+      signalIds: report.signals.map((s) => s.id),
+    });
   } else if (report.band !== 'danger' && openEvent) {
     const ev = {
       ts: openEvent.start,
@@ -86,7 +101,7 @@ async function logThreatTransition(report) {
       score: openEvent.score,
       signals: openEvent.signalIds,
     };
-    openEvent = null;
+    await setOpenEvent(null);
     const { log = [] } = await chrome.storage.local.get('log');
     log.unshift(ev);
     await chrome.storage.local.set({ log: log.slice(0, 100) }); // 최근 100건만
@@ -95,11 +110,28 @@ async function logThreatTransition(report) {
     for (const s of report.signals) {
       if (!openEvent.signalIds.includes(s.id)) openEvent.signalIds.push(s.id);
     }
+    await setOpenEvent(openEvent);
   }
 }
 
-// ── 최근 리포트 캐시 (popup 실시간 표시용) ──────────────────────────────────
-let lastReport = null;
+// ── 최근 리포트 (popup 표시 + 늦게 열린 탭 보호용) — SW 재시작에도 유지 ─────
+async function getLastReport() {
+  const { lastReport } = await chrome.storage.session.get('lastReport');
+  return lastReport || null;
+}
+async function setLastReport(r) {
+  await chrome.storage.session.set({ lastReport: r });
+}
+
+// 위협 지속 중 새로 열린/이동한 탭도 즉시 보호 (offscreen 은 '변화'시에만 전송하므로)
+chrome.tabs.onUpdated.addListener(async (tabId, info, tab) => {
+  if (info.status !== 'complete' || !/^https?:/.test(tab.url || '')) return;
+  const report = await getLastReport();
+  if (report?.blur) {
+    const s = await getSettings();
+    chrome.tabs.sendMessage(tabId, { type: 'PG_THREAT', report, mode: s.mode }).catch(() => {});
+  }
+});
 
 // ── 메시지 라우팅 ───────────────────────────────────────────────────────────
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -107,7 +139,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     switch (msg.type) {
       // offscreen → 판정 리포트
       case 'PG_REPORT': {
-        lastReport = msg.report;
+        await setLastReport(msg.report);
         setBadge(msg.report.band);
         await logThreatTransition(msg.report);
         const s = await getSettings();
@@ -116,7 +148,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         break;
       }
       case 'PG_CAM_ERROR': {
-        lastReport = { error: msg.error };
+        await setLastReport({ error: msg.error });
         setBadge('error');
         sendResponse({ ok: true });
         break;
@@ -124,15 +156,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       // popup ↔
       case 'PG_GET_STATE': {
         const s = await getSettings();
-        sendResponse({ settings: s, report: lastReport });
+        sendResponse({ settings: s, report: await getLastReport() });
         break;
       }
       case 'PG_SET': {
         const s = await setSettings(msg.patch);
         if ('enabled' in msg.patch || 'pausedUntil' in msg.patch) await applyEnabled();
-        if ('sensitivity' in msg.patch) {
-          chrome.runtime.sendMessage({ type: 'PG_CONFIG', sensitivity: s.sensitivity }).catch(() => {});
-        }
+        // sensitivity 변경은 storage.onChanged 를 통해 offscreen 이 자체 반영
         sendResponse({ settings: s });
         break;
       }

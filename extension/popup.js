@@ -42,6 +42,12 @@ function renderReport(settings, report) {
   if (report?.error) {
     $('err').style.display = 'block';
     $('err').textContent = report.error;
+    $('dot').className = 'dot';
+    $('band').textContent = '오류';
+    $('band').style.color = 'var(--warn)';
+    $('score').textContent = '–';
+    $('fill').style.width = '0%';
+    $('sub').textContent = '카메라 문제를 해결한 뒤 토글을 껐다 켜세요';
     return;
   }
   $('err').style.display = 'none';
