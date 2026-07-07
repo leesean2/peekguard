@@ -30,8 +30,24 @@ let classify = null;
 let engine = createEngine();
 let running = false;
 let timer = null;
+let lastBlur = false;
 // 저조도 q 출렁임 안정화는 engine.js 의 위치 추적 q 누적(qTracks)이 담당한다.
 // (pico detection memory 는 얼굴이 움직이면 잔상이 제3자로 오인되는 문제가 있어 제거)
+
+// ── 모바일: 감지 중 화면 자동 꺼짐 방지 (Wake Lock) ─────────────────────────
+// 미지원 브라우저에서는 조용히 무시 — 감지 자체에는 영향 없음.
+let wakeLock = null;
+async function acquireWakeLock() {
+  try { wakeLock = await navigator.wakeLock?.request('screen'); } catch { /* 저전력 모드 등 */ }
+}
+function releaseWakeLock() {
+  wakeLock?.release().catch(() => {});
+  wakeLock = null;
+}
+// 탭 전환 후 복귀 시 OS 가 wake lock 을 해제하므로 재획득
+document.addEventListener('visibilitychange', () => {
+  if (running && document.visibilityState === 'visible') acquireWakeLock();
+});
 
 async function loadCascade() {
   const res = await fetch('models/facefinder');
@@ -103,7 +119,8 @@ function renderReport(report, faces, allFaces, scale) {
 }
 
 function tick() {
-  if (!running || video.readyState < 2) return;
+  // 백그라운드에서는 OS 가 카메라를 정지시켜 마지막 프레임이 반복 분석되므로 건너뜀
+  if (!running || video.readyState < 2 || document.hidden) return;
 
   const w = ANALYSIS_WIDTH;
   const h = Math.round(video.videoHeight * (w / video.videoWidth)) || 180;
@@ -128,6 +145,10 @@ function tick() {
   if (view.width !== dispW) { view.width = dispW; view.height = dispH; }
   vctx.drawImage(video, 0, 0, dispW, dispH);
   renderReport(report, report.faceBoxes, allFaces, dispW / w);
+
+  // 모바일: 위험 진입 순간 1회 진동 — 화면을 안 보고 있어도 알아챌 수 있게
+  if (report.blur && !lastBlur) navigator.vibrate?.([120, 60, 120]);
+  lastBlur = report.blur;
 }
 
 $('start').addEventListener('click', async () => {
@@ -139,6 +160,7 @@ $('start').addEventListener('click', async () => {
     running = false;
     clearInterval(timer);
     timer = null;
+    releaseWakeLock();
     video.srcObject?.getTracks().forEach((t) => t.stop());
     video.srcObject = null;
     btn.textContent = '카메라 시작 (로컬 데모)';
@@ -151,14 +173,17 @@ $('start').addEventListener('click', async () => {
   try {
     if (!classify) await loadCascade();
     const stream = await navigator.mediaDevices.getUserMedia({
-      // 640×480 캡처 후 240px 다운스케일 — 320×240 직접 요청보다 노이즈가 적다
-      video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 15 } },
+      // 640×480 캡처 후 320px 다운스케일 — 320×240 직접 요청보다 노이즈가 적다.
+      // facingMode: 모바일에서 전면(사용자 쪽) 카메라 — 숄더서핑 감시 방향.
+      video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 15 } },
       audio: false,
     });
     video.srcObject = stream;
     await video.play();
     engine = createEngine(); // 상태 초기화 (q 누적 트랙 포함)
+    lastBlur = false;
     running = true;
+    acquireWakeLock(); // 모바일: 감지 중 화면 꺼짐 방지
     $('camEmpty').style.display = 'none';
     btn.textContent = '중지';
     btn.className = 'btn btnGhost';

@@ -5,6 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>PeekGuard — 숄더서핑 감지 라이브 데모</title>
 <meta name="description" content="웹캠으로 화면을 응시하는 제3자를 온디바이스 감지. 설치 없이 브라우저에서 바로 체험하세요. 영상은 기기 밖으로 나가지 않습니다." />
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="icon" type="image/png" href="icons/icon192.png" />
+<link rel="apple-touch-icon" href="icons/icon192.png" />
+<meta name="theme-color" content="#0c1419" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <style>
   :root {
     --bg:#0c1419; --bg2:#0f1b22; --surface:#142530; --line:#214050; --line-soft:#1a313c;
@@ -148,7 +155,21 @@
   <div id="docBanner" class="docBanner">🛡 제3자 응시 감지 — 화면 보호 중</div>
 
   <div class="card" style="margin-top:28px;">
-    <p class="cardTitle">크롬 확장으로 실제 사용하기</p>
+    <p class="cardTitle">📱 모바일에서 사용하기 (앱 설치)</p>
+    <ol class="steps">
+      <li><b>Android Chrome</b>: 메뉴(⋮) → <b>홈 화면에 추가</b> / <b>iPhone Safari</b>: 공유(↑) → <b>홈 화면에 추가</b></li>
+      <li>홈 화면의 PeekGuard 아이콘으로 실행 → <b>카메라 시작</b> → 전면 카메라 허용</li>
+      <li>감지 중에는 화면이 자동으로 꺼지지 않으며, 위험 감지 시 <b>진동</b>으로 알립니다</li>
+    </ol>
+    <p style="color:var(--faint);font-size:12px;margin:10px 0 0;">
+      한 번 설치하면 오프라인(지하철 등)에서도 동작합니다.
+      모바일 OS 제약상 <b style="color:var(--muted)">앱이 화면에 떠 있는 동안만</b> 감지합니다 —
+      카페·도서관에서 자리를 비울 때, 또는 옆에서 메시지·문서를 훔쳐보는 사람을 확인할 때 유용합니다.
+    </p>
+  </div>
+
+  <div class="card" style="margin-top:16px;">
+    <p class="cardTitle">크롬 확장으로 실제 사용하기 (PC — 백그라운드 상시 감지)</p>
     <ol class="steps">
       <li>확장 패키지 다운로드 → 압축 해제</li>
       <li><code>chrome://extensions</code> → 우상단 <b>개발자 모드</b> ON</li>
@@ -171,5 +192,9 @@
 
 <script src="lib/pico.js"></script>
 <script type="module" src="demo.js"></script>
+<script>
+  // PWA: 홈 화면 설치 + 오프라인 캐시 (감지 파이프라인과 무관, 실패해도 데모는 동작)
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+</script>
 </body>
 </html>
